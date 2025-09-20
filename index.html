@@ -3,11 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Test Site</title>
-    <script type="text/javascript" src="https://load.fomo.com/api/v1/vwBguj9MBP-cVszIMbCR8Q/load.js" async></script>
+    <title>Winnovate</title>
+
+    <script>
+    window.nudgify = {data: {"product":{"stock":null,"image":null,"id":null}}};
+    (function(w){
+        var k="nudgify",n=w[k]||(w[k]={});
+        n.uuid="3733c217-d1b1-4d10-bebd-27e6c3f06b6f";
+        var d=document,s=d.createElement("script");
+        s.src="https://pixel.nudgify.com/pixel.js";
+        s.async=1;
+        s.charset="utf-8";
+        d.getElementsByTagName("head")[0].appendChild(s)
+    })(window)
+</script>
 </head>
 <body>
-    <h1>Hello, FOMO!</h1>
+        <!-- Nudgify Push Status Indicator -->
+        <div id="nudgify-status" style="position: fixed; top: 10px; right: 10px; background: rgba(255,255,255,0.9); padding: 8px 12px; border-radius: 6px; font-size: 11px; border: 1px solid #e3e3e0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 9999;">
+            <div><strong>lara.test</strong> → Nudgify</div>
+            <div id="push-status">Push: Checking...</div>
+        </div>
+
+    <h1>Hello, Nudgify-Fomo!</h1>
     <p>This is a test of a basic HTML site deployed on Railway.</p>
+
+    <!-- Nudgify Push Opt-in Extension -->
+    <script src="/push-optin.js"
+            data-site-id="32854"
+            data-debug="true"
+            data-button-text="Enable Push Notifications">
+    </script>    
 </body>
 </html>
