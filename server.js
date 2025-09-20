@@ -14,7 +14,20 @@ const server = http.createServer((req, res) => {
                 res.end(data);
             }
         });
-    } else {
+    }
+    // Handle the push opt-in script
+    else if (req.url === '/push-optin.js') {
+        fs.readFile(path.join(__dirname, 'push-optin.js'), (err, data) => {
+            if (err) {
+                res.writeHead(404, { 'Content-Type': 'text/plain' });
+                res.end('Not Found');
+            } else {
+                res.writeHead(200, { 'Content-Type': 'application/javascript' });
+                res.end(data);
+            }
+        });
+    }
+    else {
         // Serve the index.html file for all other requests
         fs.readFile(path.join(__dirname, 'index.html'), (err, data) => {
             if (err) {
