@@ -16,7 +16,10 @@
         buttonStyle: script?.getAttribute("data-button-style") || "nudgify-push-btn",
         autoRequest: script?.getAttribute("data-auto-request") === "true",
         serviceWorkerPath: script?.getAttribute("data-sw-path") || "/firebase-messaging-sw.js",
-        backendUrl: script?.getAttribute("data-backend-url") || "https://prod-api.nudgify.io",
+        backendUrl: script?.getAttribute("data-backend-url") || "https://prod.nudgify.io",
+        vapidPublicKey:
+            script?.getAttribute("data-vapid-key") ||
+            "BBinZ3HbR_FhRlIav2mFqHIgTa7PqJQrYTskO5KMjsubnQA9hdZYxk2X5Q9kjlOv-CoqkUz5pKhFowH_OIoTAaM",
         debug: script?.getAttribute("data-debug") === "true",
     };
 
@@ -332,8 +335,11 @@
             log("Permission result:", permission);
 
             if (permission === "granted") {
-                log("Permission granted - service worker will handle subscription");
+                log("Permission granted - creating FCM subscription");
                 hideOptInModal();
+
+                // Create FCM subscription
+                await createFCMSubscription();
 
                 // Show success message briefly
                 showTemporaryMessage("✓ Push notifications enabled!", "success");
@@ -356,6 +362,85 @@
             trackEvent("permission_error", { error: error.message });
             throw error;
         }
+    }
+
+    // Create FCM subscription
+    async function createFCMSubscription() {
+        try {
+            log("Creating FCM subscription...");
+
+            // Get service worker registration
+            const registration = await navigator.serviceWorker.ready;
+
+            // Check if already subscribed
+            let subscription = await registration.pushManager.getSubscription();
+
+            if (!subscription) {
+                log("No existing subscription, creating new one...");
+
+                // Create new subscription
+                subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey),
+                });
+
+                log("New subscription created:", subscription);
+            } else {
+                log("Using existing subscription:", subscription);
+            }
+
+            // Send subscription to backend
+            const subscriptionData = {
+                site_id: config.siteId,
+                endpoint: subscription.endpoint,
+                p256dh: arrayBufferToBase64(subscription.getKey("p256dh")),
+                auth: arrayBufferToBase64(subscription.getKey("auth")),
+                user_agent: navigator.userAgent,
+                url: window.location.href,
+            };
+
+            const response = await fetch(`${config.backendUrl}/api/v1/push/subscribe`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(subscriptionData),
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                log("Subscription saved to backend:", result);
+                trackEvent("subscription_success", { subscription_id: result.subscription?.id });
+            } else {
+                throw new Error(`Backend subscription failed: ${response.status}`);
+            }
+        } catch (error) {
+            log("FCM subscription failed:", error);
+            trackEvent("subscription_failed", { error: error.message });
+            throw error;
+        }
+    }
+
+    // Helper function to convert VAPID key
+    function urlBase64ToUint8Array(base64String) {
+        const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
+
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+    }
+
+    // Helper function to convert ArrayBuffer to base64
+    function arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        bytes.forEach((b) => (binary += String.fromCharCode(b)));
+        return window.btoa(binary);
     }
 
     // Show temporary message
