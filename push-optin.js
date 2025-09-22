@@ -393,7 +393,7 @@
     function trackEvent(eventType, data = {}) {
         try {
             // Send to Nudgify analytics endpoint
-            fetch(`http://localhost:8000/api/v1/push/track`, {
+            fetch(`https://prod.nudgify.io/api/v1/push/track`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
