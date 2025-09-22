@@ -16,7 +16,7 @@
         buttonStyle: script?.getAttribute("data-button-style") || "nudgify-push-btn",
         autoRequest: script?.getAttribute("data-auto-request") === "true",
         serviceWorkerPath: script?.getAttribute("data-sw-path") || "/firebase-messaging-sw.js",
-        backendUrl: script?.getAttribute("data-backend-url") || "http://prod-api.nudgify.com",
+        backendUrl: script?.getAttribute("data-backend-url") || "https://prod-api.nudgify.com",
         debug: script?.getAttribute("data-debug") === "true",
     };
 
