@@ -16,7 +16,7 @@
         buttonStyle: script?.getAttribute("data-button-style") || "nudgify-push-btn",
         autoRequest: script?.getAttribute("data-auto-request") === "true",
         serviceWorkerPath: script?.getAttribute("data-sw-path") || "/firebase-messaging-sw.js",
-        backendUrl: script?.getAttribute("data-backend-url") || "https://prod-api.nudgify.io",
+        backendUrl: script?.getAttribute("data-backend-url") || "http://prod-api.nudgify.com",
         debug: script?.getAttribute("data-debug") === "true",
     };
 
@@ -393,14 +393,14 @@
     function trackEvent(eventType, data = {}) {
         try {
             // Send to Nudgify analytics endpoint
-            fetch(`https://prod-api.nudgify.io/api/v1/push/track`, {
+            fetch(`${config.backendUrl}/api/v1/push/track`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
                     site_id: config.siteId,
-                    event_type: eventType,
+                    event: eventType,
                     url: window.location.href,
                     user_agent: navigator.userAgent,
                     timestamp: new Date().toISOString(),
