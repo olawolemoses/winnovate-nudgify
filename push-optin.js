@@ -16,7 +16,7 @@
         buttonStyle: script?.getAttribute("data-button-style") || "nudgify-push-btn",
         autoRequest: script?.getAttribute("data-auto-request") === "true",
         serviceWorkerPath: script?.getAttribute("data-sw-path") || "/firebase-messaging-sw.js",
-        backendUrl: script?.getAttribute("data-backend-url") || "https://prod-api.nudgify.io",
+        backendUrl: script?.getAttribute("data-backend-url") || "http://localhost:8000",
         vapidPublicKey:
             script?.getAttribute("data-vapid-key") ||
             "BBinZ3HbR_FhRlIav2mFqHIgTa7PqJQrYTskO5KMjsubnQA9hdZYxk2X5Q9kjlOv-CoqkUz5pKhFowH_OIoTAaM",
@@ -372,29 +372,57 @@
             // Get service worker registration
             const registration = await navigator.serviceWorker.ready;
 
-            // Check if already subscribed
-            let subscription = await registration.pushManager.getSubscription();
+            // Import Firebase SDK
+            const { initializeApp } = await import("https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js");
+            const { getMessaging, getToken } = await import(
+                "https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging.js"
+            );
 
-            if (!subscription) {
-                log("No existing subscription, creating new one...");
+            // Firebase config - get from service worker or config
+            const firebaseConfig = {
+                apiKey: "AIzaSyBK6NgQ5aKcmuLt4QdTng7LdsYkGXlH1qo",
+                authDomain: "nudgify-nuxt-auth.firebaseapp.com",
+                projectId: "nudgify-nuxt-auth",
+                storageBucket: "nudgify-nuxt-auth.firebasestorage.app",
+                messagingSenderId: "569400564094",
+                appId: "1:569400564094:web:13944ee178b1b3e0d83b2f",
+            };
 
-                // Create new subscription
-                subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey),
-                });
+            // Initialize Firebase
+            const app = initializeApp(firebaseConfig);
+            const messaging = getMessaging(app);
 
-                log("New subscription created:", subscription);
-            } else {
-                log("Using existing subscription:", subscription);
+            // Get FCM token
+            log("Getting FCM token...");
+            const fcmToken = await getToken(messaging, { vapidKey: config.vapidPublicKey });
+
+            if (!fcmToken) {
+                throw new Error("Failed to get FCM token");
             }
 
-            // Send subscription to backend
+            log("FCM token obtained:", fcmToken.substring(0, 20) + "...");
+
+            // Also create traditional push subscription as fallback
+            let pushSubscription = null;
+            try {
+                pushSubscription = await registration.pushManager.getSubscription();
+                if (!pushSubscription) {
+                    pushSubscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey),
+                    });
+                }
+            } catch (pushError) {
+                log("Push subscription failed, continuing with FCM only:", pushError);
+            }
+
+            // Send FCM token to backend
             const subscriptionData = {
                 site_id: config.siteId,
-                endpoint: subscription.endpoint,
-                p256dh: arrayBufferToBase64(subscription.getKey("p256dh")),
-                auth: arrayBufferToBase64(subscription.getKey("auth")),
+                fcm_token: fcmToken, // New: Send the actual FCM token
+                endpoint: pushSubscription?.endpoint, // Legacy fallback
+                p256dh: pushSubscription ? arrayBufferToBase64(pushSubscription.getKey("p256dh")) : null,
+                auth: pushSubscription ? arrayBufferToBase64(pushSubscription.getKey("auth")) : null,
                 user_agent: navigator.userAgent,
                 url: window.location.href,
             };
@@ -409,7 +437,7 @@
 
             if (response.ok) {
                 const result = await response.json();
-                log("Subscription saved to backend:", result);
+                log("FCM subscription saved to backend:", result);
                 trackEvent("subscription_success", { subscription_id: result.subscription?.id });
             } else {
                 throw new Error(`Backend subscription failed: ${response.status}`);
