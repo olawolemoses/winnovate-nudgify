@@ -4,13 +4,13 @@ importScripts("https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compa
 
 // Firebase configuration
 const firebaseConfig = {
-    apiKey: "AIzaSyBK6NgQ5kGmuIt40dTng7LdsYkGXlH1go",
+    apiKey: "AIzaSyBK6NgQ5aKcmuLt4QdTng7LdsYkGXlH1qo",
     authDomain: "nudgify-nuxt-auth.firebaseapp.com",
     projectId: "nudgify-nuxt-auth",
     storageBucket: "nudgify-nuxt-auth.firebasestorage.app",
     messagingSenderId: "569400564094",
     appId: "1:569400564094:web:13944ee178b1b3e0d83b2f",
-    measurementId: "G-F1YVT9MGFB",
+    measurementId: "G-F1YVT9MGFB"
 };
 
 // Initialize Firebase
