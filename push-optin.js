@@ -16,7 +16,7 @@
         buttonStyle: script?.getAttribute("data-button-style") || "nudgify-push-btn",
         autoRequest: script?.getAttribute("data-auto-request") === "true",
         serviceWorkerPath: script?.getAttribute("data-sw-path") || "/firebase-messaging-sw.js",
-        backendUrl: script?.getAttribute("data-backend-url") || "https://prod-api.nudgify.io",
+        backendUrl: script?.getAttribute("data-backend-url") || "https://prod.nudgify.io",
         vapidPublicKey:
             script?.getAttribute("data-vapid-key") ||
             "BBinZ3HbR_FhRlIav2mFqHIgTa7PqJQrYTskO5KMjsubnQA9hdZYxk2X5Q9kjlOv-CoqkUz5pKhFowH_OIoTAaM",
@@ -32,6 +32,60 @@
         denyText: "Not Now",
         icon: "bell",
     };
+
+    // Cache remote push configuration (Firebase + VAPID)
+    let cachedPushConfig = null;
+    let pushConfigPromise = null;
+
+    async function getPushConfig() {
+        if (cachedPushConfig) {
+            return cachedPushConfig;
+        }
+
+        if (pushConfigPromise) {
+            return pushConfigPromise;
+        }
+
+        const url = new URL("/api/v1/push/config", config.backendUrl);
+        if (config.siteId) {
+            url.searchParams.set("site_id", config.siteId);
+        }
+
+        pushConfigPromise = fetch(url.toString(), {
+            method: "GET",
+            headers: {
+                "Content-Type": "application/json",
+            },
+        })
+            .then(async (response) => {
+                if (!response.ok) {
+                    throw new Error(`Push config request failed with status ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data?.ok === false) {
+                    throw new Error(data.message || "Push configuration request failed");
+                }
+
+                if (data?.vapid_public_key) {
+                    config.vapidPublicKey = data.vapid_public_key;
+                }
+
+                cachedPushConfig = data || {};
+
+                return cachedPushConfig;
+            })
+            .catch((error) => {
+                log("Failed to fetch push configuration:", error);
+                throw error;
+            })
+            .finally(() => {
+                pushConfigPromise = null;
+            });
+
+        return pushConfigPromise;
+    }
 
     // Logging utility
     function log(...args) {
@@ -308,7 +362,25 @@
     async function registerServiceWorker() {
         try {
             log("Registering service worker...");
-            const registration = await navigator.serviceWorker.register(config.serviceWorkerPath);
+            let swUrl = config.serviceWorkerPath;
+
+            try {
+                const resolvedUrl = new URL(config.serviceWorkerPath, window.location.origin);
+
+                if (config.siteId) {
+                    resolvedUrl.searchParams.set("site_id", config.siteId);
+                }
+
+                if (config.backendUrl) {
+                    resolvedUrl.searchParams.set("backend", encodeURIComponent(config.backendUrl));
+                }
+
+                swUrl = resolvedUrl.toString();
+            } catch (resolutionError) {
+                log("Unable to resolve service worker URL, falling back to provided path", resolutionError);
+            }
+
+            const registration = await navigator.serviceWorker.register(swUrl);
             log("Service worker registered:", registration.scope);
 
             // Wait for service worker to be ready
@@ -335,7 +407,7 @@
             log("Permission result:", permission);
 
             if (permission === "granted") {
-                log("Permission granted - creating FCM subscription");
+                log("Permission granted - creating push subscription");
                 hideOptInModal();
 
                 // Create FCM subscription
@@ -367,7 +439,7 @@
     // Create FCM subscription
     async function createFCMSubscription() {
         try {
-            log("Creating FCM subscription...");
+            log("Creating push subscription (FCM + Web Push)...");
 
             // Get service worker registration
             const registration = await navigator.serviceWorker.ready;
@@ -378,15 +450,24 @@
                 "https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging.js"
             );
 
-            // Firebase config - get from service worker or config
-            const firebaseConfig = {
-                apiKey: "AIzaSyBK6NgQ5aKcmuLt4QdTng7LdsYkGXlH1qo",
-                authDomain: "nudgify-nuxt-auth.firebaseapp.com",
-                projectId: "nudgify-nuxt-auth",
-                storageBucket: "nudgify-nuxt-auth.firebasestorage.app",
-                messagingSenderId: "569400564094",
-                appId: "1:569400564094:web:13944ee178b1b3e0d83b2f",
-            };
+            const pushConfig = await getPushConfig();
+            const firebaseConfig = pushConfig?.firebase || {};
+            const vapidKey = pushConfig?.vapid_public_key || config.vapidPublicKey;
+
+            if (!vapidKey) {
+                throw new Error("Missing VAPID public key");
+            }
+
+            if (
+                !firebaseConfig.apiKey ||
+                !firebaseConfig.projectId ||
+                !firebaseConfig.messagingSenderId ||
+                !firebaseConfig.appId
+            ) {
+                throw new Error("Incomplete Firebase configuration");
+            }
+
+            config.vapidPublicKey = vapidKey;
 
             // Initialize Firebase
             const app = initializeApp(firebaseConfig);
@@ -394,7 +475,7 @@
 
             // Get FCM token
             log("Getting FCM token...");
-            const fcmToken = await getToken(messaging, { vapidKey: config.vapidPublicKey });
+            const fcmToken = await getToken(messaging, { vapidKey });
 
             if (!fcmToken) {
                 throw new Error("Failed to get FCM token");
@@ -402,29 +483,64 @@
 
             log("FCM token obtained:", fcmToken.substring(0, 20) + "...");
 
-            // Also create traditional push subscription as fallback
+            // Create standards-based Web Push subscription (required for Safari/iOS)
             let pushSubscription = null;
+            let webPushSubscription = null;
             try {
                 pushSubscription = await registration.pushManager.getSubscription();
                 if (!pushSubscription) {
                     pushSubscription = await registration.pushManager.subscribe({
                         userVisibleOnly: true,
-                        applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey),
+                        applicationServerKey: urlBase64ToUint8Array(vapidKey),
                     });
                 }
+
+                if (pushSubscription) {
+                    const p256dhKey = pushSubscription.getKey("p256dh");
+                    const authKey = pushSubscription.getKey("auth");
+
+                    webPushSubscription = {
+                        endpoint: pushSubscription.endpoint,
+                        keys: {
+                            p256dh: p256dhKey ? arrayBufferToBase64(p256dhKey) : null,
+                            auth: authKey ? arrayBufferToBase64(authKey) : null,
+                        },
+                    };
+                }
             } catch (pushError) {
-                log("Push subscription failed, continuing with FCM only:", pushError);
+                log("Web Push subscription failed; continuing with available channels:", pushError);
             }
 
-            // Send FCM token to backend
-            const subscriptionData = {
+            const capabilities = {
+                webpush: Boolean(webPushSubscription?.endpoint),
+                fcm: Boolean(fcmToken),
+            };
+
+            if (!capabilities.webpush) {
+                log("Web Push subscription missing; continuing with available channels");
+            }
+
+            const subscriptionType =
+                capabilities.webpush && capabilities.fcm ? "hybrid" : capabilities.webpush ? "webpush" : "fcm";
+
+            // Build payload compatible with both legacy and new subscription handlers
+            const subscriptionPayload = {
                 site_id: config.siteId,
-                fcm_token: fcmToken, // New: Send the actual FCM token
-                endpoint: pushSubscription?.endpoint, // Legacy fallback
-                p256dh: pushSubscription ? arrayBufferToBase64(pushSubscription.getKey("p256dh")) : null,
-                auth: pushSubscription ? arrayBufferToBase64(pushSubscription.getKey("auth")) : null,
+                subscription_type: subscriptionType,
+                capabilities,
+                fcm_token: fcmToken || null,
+                endpoint: webPushSubscription?.endpoint || null,
+                keys: webPushSubscription?.keys || null,
+                p256dh: webPushSubscription?.keys?.p256dh || null,
+                auth: webPushSubscription?.keys?.auth || null,
+                subscription: webPushSubscription,
+                subscription_data: webPushSubscription,
                 user_agent: navigator.userAgent,
                 url: window.location.href,
+                device: {
+                    platform: navigator.platform,
+                    language: navigator.language,
+                },
             };
 
             const response = await fetch(`${config.backendUrl}/api/v1/push/subscribe`, {
@@ -432,12 +548,12 @@
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify(subscriptionData),
+                body: JSON.stringify(subscriptionPayload),
             });
 
             if (response.ok) {
                 const result = await response.json();
-                log("FCM subscription saved to backend:", result);
+                log("Push subscription saved to backend:", result);
                 trackEvent("subscription_success", { subscription_id: result.subscription?.id });
             } else {
                 throw new Error(`Backend subscription failed: ${response.status}`);
