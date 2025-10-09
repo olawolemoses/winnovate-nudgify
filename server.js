@@ -3,8 +3,11 @@ const fs = require('fs');
 const path = require('path');
 
 const server = http.createServer((req, res) => {
+    const requestUrl = new URL(req.url, "http://" + req.headers['host']);
+    const pathname = requestUrl.pathname;
+
     // Handle the service worker file
-    if (req.url === '/firebase-messaging-sw.js') {
+    if (pathname === '/firebase-messaging-sw.js') {
         fs.readFile(path.join(__dirname, 'firebase-messaging-sw.js'), (err, data) => {
             if (err) {
                 res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -16,7 +19,7 @@ const server = http.createServer((req, res) => {
         });
     }
     // Handle the push opt-in script
-    else if (req.url === '/push-optin.js') {
+    else if (pathname === '/push-optin.js') {
         fs.readFile(path.join(__dirname, 'push-optin.js'), (err, data) => {
             if (err) {
                 res.writeHead(404, { 'Content-Type': 'text/plain' });
