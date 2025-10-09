@@ -371,10 +371,6 @@
                     resolvedUrl.searchParams.set("site_id", config.siteId);
                 }
 
-                if (config.backendUrl) {
-                    resolvedUrl.searchParams.set("backend", encodeURIComponent(config.backendUrl));
-                }
-
                 swUrl = resolvedUrl.toString();
             } catch (resolutionError) {
                 log("Unable to resolve service worker URL, falling back to provided path", resolutionError);
