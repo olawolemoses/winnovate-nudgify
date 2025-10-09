@@ -436,11 +436,25 @@
     async function createFCMSubscription() {
         try {
             log("Creating push subscription (FCM + Web Push)...");
+            log("Step 1: Getting service worker registration...");
 
             // Get service worker registration
             const registration = await navigator.serviceWorker.ready;
+            log("Step 2: Service worker ready:", {
+                scope: registration.scope,
+                active: !!registration.active,
+                installing: !!registration.installing,
+                waiting: !!registration.waiting
+            });
 
+            log("Step 3: Fetching push configuration from API...");
             const pushConfig = await getPushConfig();
+            log("Step 4: Push config received:", {
+                hasFirebase: !!pushConfig?.firebase,
+                hasVapidKey: !!pushConfig?.vapid_public_key,
+                firebaseFields: pushConfig?.firebase ? Object.keys(pushConfig.firebase) : []
+            });
+
             const firebaseConfig = pushConfig?.firebase || {};
             const vapidKey = pushConfig?.vapid_public_key || config.vapidPublicKey;
 
@@ -448,51 +462,80 @@
                 throw new Error("Missing VAPID public key");
             }
 
+            log("Step 5: VAPID key confirmed:", vapidKey.substring(0, 20) + "...");
             config.vapidPublicKey = vapidKey;
 
             const requiredFirebaseFields = ["apiKey", "projectId", "messagingSenderId", "appId"];
             const hasCompleteFirebaseConfig = requiredFirebaseFields.every((field) => firebaseConfig && firebaseConfig[field]);
+            log("Step 6: Firebase config validation:", {
+                hasCompleteConfig: hasCompleteFirebaseConfig,
+                missingFields: requiredFirebaseFields.filter(field => !firebaseConfig[field])
+            });
 
             let fcmToken = null;
 
             if (hasCompleteFirebaseConfig) {
                 try {
+                    log("Step 7: Loading Firebase SDK modules...");
                     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js");
                     const { getMessaging, getToken } = await import(
                         "https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging.js"
                     );
+                    log("Step 8: Firebase SDK loaded successfully");
 
+                    log("Step 9: Initializing Firebase app...");
                     const app = initializeApp(firebaseConfig);
-                    const messaging = getMessaging(app);
+                    log("Step 10: Firebase app initialized:", app.name);
 
-                    log("Getting FCM token...");
-                    fcmToken = await getToken(messaging, { vapidKey });
+                    log("Step 11: Getting Firebase messaging instance...");
+                    const messaging = getMessaging(app);
+                    log("Step 12: Messaging instance obtained");
+
+                    log("Step 13: Requesting FCM token with service worker registration...");
+                    fcmToken = await getToken(messaging, {
+                        vapidKey,
+                        serviceWorkerRegistration: registration
+                    });
 
                     if (fcmToken) {
-                        log("FCM token obtained:", fcmToken.substring(0, 20) + "...");
+                        log("Step 14: ✅ FCM token obtained successfully:", fcmToken.substring(0, 20) + "...");
                     } else {
-                        log("FCM token not available - continuing with Web Push only");
+                        log("Step 14: ⚠️ FCM token not available - continuing with Web Push only");
                     }
                 } catch (firebaseError) {
-                    log("Firebase initialisation failed - continuing with Web Push only", firebaseError);
+                    log("❌ Firebase initialization failed at step:", firebaseError.message);
+                    log("Firebase error details:", {
+                        name: firebaseError.name,
+                        code: firebaseError.code,
+                        stack: firebaseError.stack
+                    });
+                    log("Continuing with Web Push only");
                 }
             } else {
-                log("Incomplete Firebase configuration returned from API - continuing with Web Push only", firebaseConfig);
+                log("⚠️ Incomplete Firebase configuration - skipping FCM, using Web Push only");
             }
 
             // Create standards-based Web Push subscription (required for Safari/iOS)
+            log("Step 15: Creating Web Push subscription...");
             let pushSubscription = null;
             let webPushSubscription = null;
             try {
+                log("Step 16: Checking for existing subscription...");
                 pushSubscription = await registration.pushManager.getSubscription();
+
                 if (!pushSubscription) {
+                    log("Step 17: No existing subscription, creating new one...");
                     pushSubscription = await registration.pushManager.subscribe({
                         userVisibleOnly: true,
                         applicationServerKey: urlBase64ToUint8Array(vapidKey),
                     });
+                    log("Step 18: ✅ Web Push subscription created");
+                } else {
+                    log("Step 17: ✅ Using existing Web Push subscription");
                 }
 
                 if (pushSubscription) {
+                    log("Step 19: Extracting subscription keys...");
                     const p256dhKey = pushSubscription.getKey("p256dh");
                     const authKey = pushSubscription.getKey("auth");
 
@@ -503,9 +546,19 @@
                             auth: authKey ? arrayBufferToBase64(authKey) : null,
                         },
                     };
+                    log("Step 20: Web Push subscription data prepared:", {
+                        endpoint: pushSubscription.endpoint.substring(0, 50) + "...",
+                        hasP256dh: !!webPushSubscription.keys.p256dh,
+                        hasAuth: !!webPushSubscription.keys.auth
+                    });
                 }
             } catch (pushError) {
-                log("Web Push subscription failed; continuing with available channels:", pushError);
+                log("❌ Web Push subscription failed:", {
+                    message: pushError.message,
+                    name: pushError.name,
+                    code: pushError.code
+                });
+                log("Continuing with available channels");
             }
 
             const capabilities = {
@@ -513,12 +566,16 @@
                 fcm: Boolean(fcmToken),
             };
 
-            if (!capabilities.webpush) {
-                log("Web Push subscription missing; continuing with available channels");
+            log("Step 21: Subscription capabilities:", capabilities);
+
+            if (!capabilities.webpush && !capabilities.fcm) {
+                throw new Error("No valid push subscription channels available");
             }
 
             const subscriptionType =
                 capabilities.webpush && capabilities.fcm ? "hybrid" : capabilities.webpush ? "webpush" : "fcm";
+
+            log("Step 22: Subscription type determined:", subscriptionType);
 
             // Build payload compatible with both legacy and new subscription handlers
             const subscriptionPayload = {
@@ -535,10 +592,17 @@
                 user_agent: navigator.userAgent,
                 url: window.location.href,
                 device: {
-                    platform: navigator.platform,
+                    platform: navigator.userAgentData?.platform || navigator.platform,
                     language: navigator.language,
                 },
             };
+
+            log("Step 23: Sending subscription to backend...", {
+                url: `${config.backendUrl}/api/v1/push/subscribe`,
+                subscriptionType,
+                hasFcmToken: !!fcmToken,
+                hasWebPush: !!webPushSubscription
+            });
 
             const response = await fetch(`${config.backendUrl}/api/v1/push/subscribe`, {
                 method: "POST",
@@ -548,12 +612,24 @@
                 body: JSON.stringify(subscriptionPayload),
             });
 
+            log("Step 24: Backend response received:", {
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok
+            });
+
             if (response.ok) {
                 const result = await response.json();
-                log("Push subscription saved to backend:", result);
+                log("Step 25: ✅ Push subscription saved to backend:", result);
                 trackEvent("subscription_success", { subscription_id: result.subscription?.id });
             } else {
-                throw new Error(`Backend subscription failed: ${response.status}`);
+                const errorText = await response.text();
+                log("❌ Backend subscription failed:", {
+                    status: response.status,
+                    statusText: response.statusText,
+                    errorBody: errorText
+                });
+                throw new Error(`Backend subscription failed: ${response.status} - ${errorText}`);
             }
         } catch (error) {
             log("FCM subscription failed:", error);
