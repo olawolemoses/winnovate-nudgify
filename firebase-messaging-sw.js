@@ -30,12 +30,17 @@ async function fetchFirebaseConfig() {
         return data.firebase;
     } catch (error) {
         console.error('[Nudgify Push] Failed to fetch Firebase configuration', error);
-        throw error;
+        return null;
     }
 }
 
 const messagingPromise = fetchFirebaseConfig()
     .then((firebaseConfig) => {
+        if (!firebaseConfig) {
+            console.warn('[Nudgify Push] Firebase config unavailable - Web Push only');
+            return null;
+        }
+
         firebase.initializeApp(firebaseConfig);
         return firebase.messaging();
     })

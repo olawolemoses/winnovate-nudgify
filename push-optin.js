@@ -440,12 +440,6 @@
             // Get service worker registration
             const registration = await navigator.serviceWorker.ready;
 
-            // Import Firebase SDK
-            const { initializeApp } = await import("https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js");
-            const { getMessaging, getToken } = await import(
-                "https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging.js"
-            );
-
             const pushConfig = await getPushConfig();
             const firebaseConfig = pushConfig?.firebase || {};
             const vapidKey = pushConfig?.vapid_public_key || config.vapidPublicKey;
@@ -454,30 +448,37 @@
                 throw new Error("Missing VAPID public key");
             }
 
-            if (
-                !firebaseConfig.apiKey ||
-                !firebaseConfig.projectId ||
-                !firebaseConfig.messagingSenderId ||
-                !firebaseConfig.appId
-            ) {
-                throw new Error("Incomplete Firebase configuration");
-            }
-
             config.vapidPublicKey = vapidKey;
 
-            // Initialize Firebase
-            const app = initializeApp(firebaseConfig);
-            const messaging = getMessaging(app);
+            const requiredFirebaseFields = ["apiKey", "projectId", "messagingSenderId", "appId"];
+            const hasCompleteFirebaseConfig = requiredFirebaseFields.every((field) => firebaseConfig && firebaseConfig[field]);
 
-            // Get FCM token
-            log("Getting FCM token...");
-            const fcmToken = await getToken(messaging, { vapidKey });
+            let fcmToken = null;
 
-            if (!fcmToken) {
-                throw new Error("Failed to get FCM token");
+            if (hasCompleteFirebaseConfig) {
+                try {
+                    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js");
+                    const { getMessaging, getToken } = await import(
+                        "https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging.js"
+                    );
+
+                    const app = initializeApp(firebaseConfig);
+                    const messaging = getMessaging(app);
+
+                    log("Getting FCM token...");
+                    fcmToken = await getToken(messaging, { vapidKey });
+
+                    if (fcmToken) {
+                        log("FCM token obtained:", fcmToken.substring(0, 20) + "...");
+                    } else {
+                        log("FCM token not available - continuing with Web Push only");
+                    }
+                } catch (firebaseError) {
+                    log("Firebase initialisation failed - continuing with Web Push only", firebaseError);
+                }
+            } else {
+                log("Incomplete Firebase configuration returned from API - continuing with Web Push only", firebaseConfig);
             }
-
-            log("FCM token obtained:", fcmToken.substring(0, 20) + "...");
 
             // Create standards-based Web Push subscription (required for Safari/iOS)
             let pushSubscription = null;
