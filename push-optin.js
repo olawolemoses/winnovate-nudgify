@@ -505,7 +505,7 @@
                     };
                 }
             } catch (pushError) {
-                log("Web Push subscription failed; continuing with available channels:", pushError);
+                log("Web Push subscription failed ; continuing with available channels:", pushError);
             }
 
             const capabilities = {
