@@ -425,7 +425,7 @@
 
             return permission;
         } catch (error) {
-            log("Error requesting permission:", error);
+            log("Error requesting   permission:", error);
             showTemporaryMessage("Failed to enable notifications", "error");
             trackEvent("permission_error", { error: error.message });
             throw error;
@@ -505,7 +505,7 @@
                     };
                 }
             } catch (pushError) {
-                log("Web Push subscription failed ; continuing with available channels:", pushError);
+                log("Web Push subscription failed; continuing with available channels:", pushError);
             }
 
             const capabilities = {
