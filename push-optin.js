@@ -46,7 +46,7 @@
             return pushConfigPromise;
         }
 
-        const url = new URL("/api/v1/push/config", config.backendUrl);
+        const url = new URL("/push/config", config.backendUrl);
         if (config.siteId) {
             url.searchParams.set("site_id", config.siteId);
         }
