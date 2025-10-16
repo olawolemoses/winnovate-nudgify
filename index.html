@@ -3,14 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Winnovate</title>
+    <title>Winnovate - Social Proof Notifications</title>
+    <meta name="description" content="Experience real-time social proof notifications powered by Nudgify">
+
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Winnovate">
+
+    <!-- iOS Icons -->
+    <link rel="apple-touch-icon" href="/icons/icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-72x72.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-72x72.png">
+
+    <!-- Microsoft Tiles -->
+    <meta name="msapplication-TileColor" content="#667eea">
+    <meta name="msapplication-TileImage" content="/icons/icon-144x144.png">
 
     <script>
         (function(w){
             var k="nudgify",n=w[k]||(w[k]={});
             n.uuid="b1310643-d11d-4c28-9d54-1ded34bf72a9";
             var d=document,s=d.createElement("script");
-            s.src="https://pixel.nudgify.com/pixel.js";
+            s.src="https://pixel-rc.nudgify.com/pixel.js";
             s.async=1;
             s.charset="utf-8";
             d.getElementsByTagName("head")[0].appendChild(s)
@@ -27,11 +49,73 @@
     <h1>Hello, Nudgify-Fomo!</h1>
     <p>This is a test of a basic HTML site deployed on Railway.</p>
 
-    <!-- Nudgify Push Opt-in Extension -->
-    <script src="./push-optin.js"
-            data-site-id="32914"
-            data-debug="true"
-            data-button-text="Enable Push Notifications">
-    </script>    
+    <!-- PWA Installation Script -->
+    <script>
+        // Register PWA service worker (separate from Nudgify's push notifications)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                // Register PWA service worker for offline support
+                navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                    .then(registration => {
+                        console.log('[PWA] Service Worker registered:', registration.scope);
+
+                        // Listen for updates
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    console.log('[PWA] New version available');
+                                    // Optionally show update notification
+                                }
+                            });
+                        });
+                    })
+                    .catch(error => {
+                        console.log('[PWA] Service Worker registration failed:', error);
+                    });
+
+                // Nudgify push notifications will register its own firebase-messaging-sw.js
+                // via push-optin.js - no conflict as they use different scopes
+            });
+        }
+
+        // PWA Install prompt
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+
+            // Update push status to show install option
+            const statusDiv = document.getElementById('push-status');
+            if (statusDiv) {
+                statusDiv.innerHTML = 'Push: Ready | <a href="#" id="install-pwa" style="color: #667eea; text-decoration: underline;">Install App</a>';
+
+                document.getElementById('install-pwa').addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    if (deferredPrompt) {
+                        deferredPrompt.prompt();
+                        const { outcome } = await deferredPrompt.userChoice;
+                        console.log('[PWA] Install prompt outcome:', outcome);
+                        deferredPrompt = null;
+                    }
+                });
+            }
+        });
+
+        // Track successful installation
+        window.addEventListener('appinstalled', () => {
+            console.log('[PWA] App installed successfully');
+            deferredPrompt = null;
+        });
+
+        // Detect if already running as PWA
+        if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+            console.log('[PWA] Running as installed app');
+            const statusDiv = document.getElementById('push-status');
+            if (statusDiv) {
+                statusDiv.innerHTML = 'Push: Active (PWA Mode)';
+            }
+        }
+    </script>
 </body>
 </html>
